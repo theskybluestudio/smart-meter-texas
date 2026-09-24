@@ -37,7 +37,7 @@ st.caption("Quality control view for validating the currently loaded smart meter
 st.subheader("Current dataset")
 st.write(
     {
-        "source": bundle.csv_path,
+        "source": bundle.source_path,
         "datetime_column": bundle.schema.label_for(bundle.schema.detected_datetime_column),
         "primary_metric": bundle.schema.label_for(bundle.schema.detected_primary_metric_column),
         "group_fields": [bundle.schema.label_for(column) for column in bundle.schema.available_group_columns],

@@ -76,7 +76,7 @@ def render_sidebar(bundle: DashboardBundle) -> dict[str, Any]:
 
     with st.sidebar:
         st.title("Smart Meter Dashboard")
-        st.caption(Path(bundle.csv_path).name)
+        st.caption(Path(bundle.source_path).name)
 
         if st.button("Reset filters", use_container_width=True):
             reset_sidebar_state()

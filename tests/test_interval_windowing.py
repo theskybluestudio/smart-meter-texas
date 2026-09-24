@@ -5,19 +5,27 @@ from pathlib import Path
 
 import pandas as pd
 
-from smart_meter_texas.intervals import determine_window
+from smart_meter_texas.intervals import determine_window, upsert_to_sqlite
 
 
 def test_determine_window_uses_default_overlap_for_incremental_runs(tmp_path: Path) -> None:
-    csv_path = tmp_path / "intervals.csv"
-    pd.DataFrame(
-        {
-            "USAGE_DATE": ["07/09/2026", "07/10/2026"],
-        }
-    ).to_csv(csv_path, index=False)
+    db_path = tmp_path / "intervals.sqlite"
+    upsert_to_sqlite(db_path, pd.DataFrame({
+        "ESIID": ["'100", "'100"],
+        "USAGE_DATE": ["07/09/2026", "07/10/2026"],
+        "REVISION_DATE": ["", ""],
+        "INTERVAL_INDEX": ["0", "0"],
+        "INTERVAL_START_TS": ["", ""],
+        "USAGE_START_TIME": ["", ""],
+        "USAGE_END_TIME": ["", ""],
+        "USAGE_KWH": ["1", "1"],
+        "ESTIMATED_ACTUAL": ["A", "A"],
+        "INTERVAL_STATUS": ["PRESENT", "PRESENT"],
+        "CONSUMPTION_SURPLUSGENERATION": ["Consumption", "Consumption"],
+    }))
 
     start, end = determine_window(
-        csv_path=csv_path,
+        db_path=db_path,
         state_path=tmp_path / "state.json",
         timezone_name="America/Chicago",
         bootstrap_days=7,
@@ -31,12 +39,20 @@ def test_determine_window_uses_default_overlap_for_incremental_runs(tmp_path: Pa
 
 
 def test_determine_window_prefers_earliest_incomplete_date(tmp_path: Path) -> None:
-    csv_path = tmp_path / "intervals.csv"
-    pd.DataFrame(
-        {
-            "USAGE_DATE": ["07/09/2026", "07/10/2026", "07/11/2026"],
-        }
-    ).to_csv(csv_path, index=False)
+    db_path = tmp_path / "intervals.sqlite"
+    upsert_to_sqlite(db_path, pd.DataFrame({
+        "ESIID": ["'100", "'100", "'100"],
+        "USAGE_DATE": ["07/09/2026", "07/10/2026", "07/11/2026"],
+        "REVISION_DATE": ["", "", ""],
+        "INTERVAL_INDEX": ["0", "0", "0"],
+        "INTERVAL_START_TS": ["", "", ""],
+        "USAGE_START_TIME": ["", "", ""],
+        "USAGE_END_TIME": ["", "", ""],
+        "USAGE_KWH": ["1", "1", "1"],
+        "ESTIMATED_ACTUAL": ["A", "A", "A"],
+        "INTERVAL_STATUS": ["PRESENT", "PRESENT", "PRESENT"],
+        "CONSUMPTION_SURPLUSGENERATION": ["Consumption", "Consumption", "Consumption"],
+    }))
     state_path = tmp_path / "state.json"
     state_path.write_text(
         json.dumps(
@@ -49,7 +65,7 @@ def test_determine_window_prefers_earliest_incomplete_date(tmp_path: Path) -> No
     )
 
     start, end = determine_window(
-        csv_path=csv_path,
+        db_path=db_path,
         state_path=state_path,
         timezone_name="America/Chicago",
         bootstrap_days=7,
@@ -64,7 +80,7 @@ def test_determine_window_prefers_earliest_incomplete_date(tmp_path: Path) -> No
 
 def test_determine_window_respects_explicit_start_date(tmp_path: Path) -> None:
     start, end = determine_window(
-        csv_path=tmp_path / "intervals.csv",
+        db_path=tmp_path / "intervals.sqlite",
         state_path=tmp_path / "state.json",
         timezone_name="America/Chicago",
         bootstrap_days=7,

@@ -4,7 +4,7 @@ SQLite-only Smart Meter Texas interval retriever plus Streamlit dashboard.
 
 ## Services
 
-- `web`: Streamlit dashboard, reading from local SQLite with CSV fallback.
+- `web`: Streamlit dashboard, reading from local SQLite.
 - `scheduler`: daily Smart Meter Texas interval refresh into the shared SQLite volume.
 
 Both services share Docker volumes mounted at:
@@ -58,7 +58,6 @@ Dashboard config lives in `config.toml` inside the image and defaults to:
 ```toml
 [data]
 source = "sqlite"
-fallback_sources = ["csv"]
 
 [sqlite]
 path = "data/smt_interval_usage_history.sqlite"
@@ -70,7 +69,6 @@ table = "interval_usage"
 The interval retriever writes:
 
 - `data/smt_interval_usage_history.sqlite`
-- `data/smt_interval_usage_history.csv`
 - `data/smt_interval_sync_state.json`
 - `logs/raw-payloads/*.json`
 

@@ -35,8 +35,6 @@ def run_refresh(overlap_days: int) -> int:
         "smart_meter_texas.intervals",
         "--overlap-days",
         str(overlap_days),
-        "--csv-path",
-        "data/smt_interval_usage_history.csv",
         "--db-path",
         "data/smt_interval_usage_history.sqlite",
         "--state-path",

@@ -41,7 +41,7 @@ class DatasetSchema:
 
 @dataclass(frozen=True)
 class DashboardBundle:
-    csv_path: str
+    source_path: str
     dataframe: pd.DataFrame
     schema: DatasetSchema
     warnings: list[str]
@@ -50,55 +50,20 @@ class DashboardBundle:
 @dataclass(frozen=True)
 class DashboardSourceConfig:
     source: str
-    fallback_sources: list[str]
-    csv_path: str
     sqlite_path: str
     sqlite_table: str
 
 
-SUPPORTED_SOURCES = ("sqlite", "csv")
+SUPPORTED_SOURCES = ("sqlite",)
 DEFAULT_CONFIG = {
     "data": {
         "source": "sqlite",
-        "fallback_sources": ["csv"],
-    },
-    "csv": {
-        "path": "data/smt_interval_usage_history.csv",
     },
     "sqlite": {
         "path": "data/smt_interval_usage_history.sqlite",
         "table": "interval_usage",
     },
 }
-
-
-PREFERRED_CSV_FILENAMES = [
-    "smt_interval_usage_history.csv",
-    "IntervalData_20240801-20260710.csv",
-    "smt_daily_usage_history.csv",
-]
-
-
-def find_primary_csv(data_dir: Path) -> tuple[Path, list[str]]:
-    csv_files = sorted(data_dir.glob("*.csv"), key=lambda path: path.name.lower())
-    if not csv_files:
-        raise FileNotFoundError(f"No CSV files were found in {data_dir}.")
-
-    selected = csv_files[0]
-    for preferred_name in PREFERRED_CSV_FILENAMES:
-        match = next((path for path in csv_files if path.name == preferred_name), None)
-        if match is not None:
-            selected = match
-            break
-
-    warnings: list[str] = []
-    if len(csv_files) > 1:
-        warnings.append(
-            "Multiple CSV files were found in data/. "
-            f"Using {selected.name} based on dashboard preference order."
-        )
-
-    return selected, warnings
 
 
 def default_config_path(data_dir: Path) -> Path:
@@ -144,44 +109,17 @@ def load_dashboard_config(data_dir: Path, config_path: Path | None = None) -> Da
         raw = parse_config_toml(resolved_config_path.read_text(encoding="utf-8"))
 
     data_config = {**DEFAULT_CONFIG["data"], **raw.get("data", {})}
-    csv_config = {**DEFAULT_CONFIG["csv"], **raw.get("csv", {})}
     sqlite_config = {**DEFAULT_CONFIG["sqlite"], **raw.get("sqlite", {})}
     source = str(os.environ.get("SMT_DASHBOARD_SOURCE") or data_config["source"]).strip().lower()
-    fallback_override = os.environ.get("SMT_DASHBOARD_FALLBACK_SOURCES")
-    fallback_sources = (
-        [item.strip().lower() for item in fallback_override.split(",") if item.strip()]
-        if fallback_override
-        else [str(item).strip().lower() for item in data_config.get("fallback_sources", []) if str(item).strip()]
-    )
 
     if source not in SUPPORTED_SOURCES:
         raise ValueError(f"Unsupported dashboard source: {source}")
-    for fallback_source in fallback_sources:
-        if fallback_source not in SUPPORTED_SOURCES:
-            raise ValueError(f"Unsupported dashboard fallback source: {fallback_source}")
 
     return DashboardSourceConfig(
         source=source,
-        fallback_sources=fallback_sources,
-        csv_path=str(csv_config["path"]),
         sqlite_path=str(sqlite_config["path"]),
         sqlite_table=str(sqlite_config.get("table") or "interval_usage"),
     )
-
-
-def resolve_source_order(config: DashboardSourceConfig) -> list[str]:
-    ordered = [config.source, *config.fallback_sources]
-    deduplicated: list[str] = []
-    for source in ordered:
-        if source not in deduplicated:
-            deduplicated.append(source)
-    return deduplicated
-
-
-def load_bundle_from_csv(data_dir: Path) -> tuple[str, pd.DataFrame, list[str]]:
-    csv_path, warnings = find_primary_csv(data_dir)
-    dataframe = pd.read_csv(csv_path)
-    return str(csv_path), dataframe, warnings
 
 
 def load_bundle_from_sqlite(data_dir: Path, config: DashboardSourceConfig) -> tuple[str, pd.DataFrame, list[str]]:
@@ -221,37 +159,19 @@ def normalize_columns(columns: list[str]) -> tuple[list[str], dict[str, str]]:
 def load_dashboard_bundle(data_dir: Path, config_path: Path | None = None) -> DashboardBundle:
     config = load_dashboard_config(data_dir, config_path=config_path)
     warnings: list[str] = []
-    source_errors: list[str] = []
-    source_label = ""
-    dataframe = pd.DataFrame()
-
-    for source in resolve_source_order(config):
-        try:
-            if source == "sqlite":
-                source_label, dataframe, source_warnings = load_bundle_from_sqlite(data_dir, config)
-            else:
-                source_label, dataframe, source_warnings = load_bundle_from_csv(data_dir)
-
-            warnings.extend(source_warnings)
-            if source != config.source:
-                warnings.append(f"Primary source {config.source} was unavailable. Loaded {source} instead.")
-            break
-        except Exception as exc:  # noqa: BLE001
-            source_errors.append(f"{source}: {exc}")
-    else:
-        joined = "; ".join(source_errors) or "no data sources were available"
-        raise RuntimeError(f"Unable to load dashboard data. {joined}.")
+    try:
+        source_label, dataframe, source_warnings = load_bundle_from_sqlite(data_dir, config)
+        warnings.extend(source_warnings)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Unable to load dashboard data from SQLite. {exc}.") from exc
 
     normalized_columns, display_labels = normalize_columns(list(dataframe.columns))
     dataframe.columns = normalized_columns
 
     schema, prepared_dataframe, schema_warnings = detect_schema(dataframe, display_labels)
     warnings.extend(schema_warnings)
-    if source_errors:
-        warnings.extend([f"Source check failed: {message}" for message in source_errors])
-
     return DashboardBundle(
-        csv_path=source_label,
+        source_path=source_label,
         dataframe=prepared_dataframe,
         schema=schema,
         warnings=warnings,

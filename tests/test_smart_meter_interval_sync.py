@@ -7,7 +7,7 @@ import pandas as pd
 from smart_meter_texas.intervals import (
     MISSING_INTERVAL_STATUS,
     PRESENT_INTERVAL_STATUS,
-    append_to_csv,
+    prepare_sqlite_write,
     audit_rows,
     capture_raw_payload,
     daily_interval_slots,
@@ -59,8 +59,8 @@ def test_normalize_interval_payload_preserves_missing_intervals() -> None:
     assert rows.iloc[3]["ESTIMATED_ACTUAL"] == "E"
 
 
-def test_append_to_csv_deduplicates_interval_rows_by_interval_index(tmp_path: Path) -> None:
-    csv_path = tmp_path / "intervals.csv"
+def test_prepare_sqlite_write_deduplicates_interval_rows_by_interval_index(tmp_path: Path) -> None:
+    db_path = tmp_path / "intervals.sqlite"
     initial = pd.DataFrame(
         [
             {
@@ -78,7 +78,9 @@ def test_append_to_csv_deduplicates_interval_rows_by_interval_index(tmp_path: Pa
             }
         ]
     )
-    initial.to_csv(csv_path, index=False)
+    from smart_meter_texas.intervals import upsert_to_sqlite
+
+    upsert_to_sqlite(db_path, initial)
 
     new_rows = pd.DataFrame(
         [
@@ -111,14 +113,13 @@ def test_append_to_csv_deduplicates_interval_rows_by_interval_index(tmp_path: Pa
         ]
     )
 
-    summary = append_to_csv(csv_path, new_rows)
-    written = pd.read_csv(csv_path, dtype=str)
+    summary = prepare_sqlite_write(db_path, new_rows)
 
     assert summary.inserted_rows == 1
     assert summary.updated_rows == 1
     assert summary.revised_rows == 1
-    assert len(written) == 2
-    assert written.iloc[0]["USAGE_KWH"] == "0.405"
+    assert len(summary.merged_rows) == 2
+    assert summary.merged_rows.iloc[0]["USAGE_KWH"] == "0.405"
 
 
 def test_audit_rows_marks_missing_intervals_incomplete() -> None:

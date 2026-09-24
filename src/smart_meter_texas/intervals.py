@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import sqlite3
 import time as time_module
@@ -77,7 +76,6 @@ class AuditSummary:
     incomplete_dates: list[str]
     issues: list[AuditIssue]
     revised_rows: int
-    csv_row_count: int
     sqlite_row_count: int
 
 
@@ -101,7 +99,6 @@ class IntervalSyncResult:
     complete_days: int
     incomplete_days: int
     incomplete_dates: list[str]
-    csv_path: Path
     db_path: Path
     state_path: Path
 
@@ -180,7 +177,7 @@ class SmartMeterTexasIntervalClient:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Sync Smart Meter Texas 15-minute interval usage into local CSV and SQLite files."
+        description="Sync Smart Meter Texas 15-minute interval usage into local SQLite."
     )
     parser.add_argument("--username")
     parser.add_argument("--password")
@@ -195,11 +192,6 @@ def parse_args() -> argparse.Namespace:
         help="When running incrementally, re-fetch at least this many already-synced days to catch revisions.",
     )
     parser.add_argument("--discover-meters", action="store_true")
-    parser.add_argument(
-        "--csv-path",
-        default="data/smt_interval_usage_history.csv",
-        help="CSV output path, relative to the project folder.",
-    )
     parser.add_argument(
         "--db-path",
         default="data/smt_interval_usage_history.sqlite",
@@ -410,25 +402,6 @@ def assign_legacy_interval_indexes(dataframe: pd.DataFrame) -> pd.DataFrame:
     return normalized
 
 
-def load_existing_rows(path: Path) -> pd.DataFrame:
-    if not path.exists():
-        return pd.DataFrame(columns=CSV_COLUMNS)
-    existing = pd.read_csv(path, dtype=str).fillna("")
-    for column in CSV_COLUMNS:
-        if column not in existing.columns:
-            existing[column] = ""
-    existing = assign_legacy_interval_indexes(existing)
-    if "INTERVAL_START_TS" not in existing.columns or existing["INTERVAL_START_TS"].eq("").all():
-        existing["INTERVAL_START_TS"] = existing.apply(
-            lambda row: interval_start_timestamp(row["USAGE_DATE"], int(row["INTERVAL_INDEX"])),
-            axis=1,
-        )
-    if "INTERVAL_STATUS" not in existing.columns or existing["INTERVAL_STATUS"].eq("").all():
-        existing["INTERVAL_STATUS"] = existing["USAGE_KWH"].apply(
-            lambda value: PRESENT_INTERVAL_STATUS if str(value).strip() else MISSING_INTERVAL_STATUS
-        )
-    return existing[CSV_COLUMNS]
-
 
 def ensure_sqlite_table(connection: sqlite3.Connection) -> None:
     desired_columns = [
@@ -545,11 +518,21 @@ def merge_rows(existing: pd.DataFrame, rows: pd.DataFrame) -> tuple[pd.DataFrame
     return merged, int(inserted_rows), int(updated_rows), int(revised_rows)
 
 
-def append_to_csv(path: Path, rows: pd.DataFrame) -> WriteSummary:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing = load_existing_rows(path)
+def load_existing_sqlite_rows(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=CSV_COLUMNS)
+    with sqlite3.connect(path) as connection:
+        ensure_sqlite_table(connection)
+        return pd.read_sql_query(
+            "SELECT * FROM interval_usage ORDER BY ESIID, USAGE_DATE, INTERVAL_INDEX",
+            connection,
+            dtype=str,
+        ).fillna("")
+
+
+def prepare_sqlite_write(path: Path, rows: pd.DataFrame) -> WriteSummary:
+    existing = load_existing_sqlite_rows(path)
     merged, inserted_rows, updated_rows, revised_rows = merge_rows(existing, rows.astype(str))
-    merged.to_csv(path, index=False, quoting=csv.QUOTE_MINIMAL)
     return WriteSummary(
         inserted_rows=inserted_rows,
         updated_rows=updated_rows,
@@ -587,7 +570,7 @@ def upsert_to_sqlite(path: Path, rows: pd.DataFrame) -> None:
 
 def determine_window(
     *,
-    csv_path: Path,
+    db_path: Path,
     state_path: Path,
     timezone_name: str,
     bootstrap_days: int,
@@ -601,8 +584,8 @@ def determine_window(
     else:
         incomplete_dates = sorted(coerce_date(value) for value in state.get("incomplete_dates", []) if value)
         last_complete_date = state.get("last_complete_date")
-        latest_csv_date = find_latest_date(csv_path)
-        complete_date = coerce_date(last_complete_date) if last_complete_date else latest_csv_date
+        latest_sqlite_date = find_latest_sqlite_date(db_path)
+        complete_date = coerce_date(last_complete_date) if last_complete_date else latest_sqlite_date
         safe_overlap = max(overlap_days, DEFAULT_OVERLAP_DAYS, 1)
         overlap_start = complete_date - timedelta(days=safe_overlap - 1) if complete_date else None
 
@@ -618,10 +601,12 @@ def determine_window(
     return start, end
 
 
-def find_latest_date(csv_path: Path) -> date | None:
-    if not csv_path.exists():
+def find_latest_sqlite_date(db_path: Path) -> date | None:
+    if not db_path.exists():
         return None
-    dataframe = pd.read_csv(csv_path, usecols=["USAGE_DATE"], dtype=str)
+    with sqlite3.connect(db_path) as connection:
+        ensure_sqlite_table(connection)
+        dataframe = pd.read_sql_query("SELECT USAGE_DATE FROM interval_usage", connection)
     if dataframe.empty:
         return None
     parsed = pd.to_datetime(dataframe["USAGE_DATE"], format="%m/%d/%Y", errors="coerce").dropna()
@@ -690,7 +675,6 @@ def audit_rows(rows: pd.DataFrame) -> AuditSummary:
         incomplete_dates=[datetime.strptime(issue.usage_date, "%m/%d/%Y").date().isoformat() for issue in issues],
         issues=issues,
         revised_rows=0,
-        csv_row_count=len(normalized),
         sqlite_row_count=0,
     )
 
@@ -746,7 +730,6 @@ def sync_usage(args: argparse.Namespace) -> IntervalSyncResult:
     if not username or not password:
         raise SmartMeterTexasError("Set SMT_USERNAME and SMT_PASSWORD or pass --username/--password.")
 
-    csv_path = project_root / args.csv_path
     db_path = project_root / args.db_path
     state_path = project_root / args.state_path
     raw_payload_dir = project_root / args.raw_payload_dir
@@ -761,7 +744,7 @@ def sync_usage(args: argparse.Namespace) -> IntervalSyncResult:
 
     esiid = choose_esiid(client, requested_esiid)
     start, end = determine_window(
-        csv_path=csv_path,
+        db_path=db_path,
         state_path=state_path,
         timezone_name=args.timezone,
         bootstrap_days=args.bootstrap_days,
@@ -776,10 +759,9 @@ def sync_usage(args: argparse.Namespace) -> IntervalSyncResult:
     if rows.empty:
         raise SmartMeterTexasError("No interval rows were returned for the requested window.")
 
-    write_summary = append_to_csv(csv_path, rows)
+    write_summary = prepare_sqlite_write(db_path, rows)
     upsert_to_sqlite(db_path, rows)
     audit = audit_sqlite(db_path, start, end, revised_rows=write_summary.revised_rows)
-    audit.csv_row_count = len(write_summary.merged_rows)
 
     rows_usage_dates = pd.to_datetime(rows["USAGE_DATE"], format="%m/%d/%Y")
     last_returned_usage_date = rows_usage_dates.max().date().isoformat()
@@ -836,7 +818,6 @@ def sync_usage(args: argparse.Namespace) -> IntervalSyncResult:
         complete_days=audit.complete_days,
         incomplete_days=audit.incomplete_days,
         incomplete_dates=audit.incomplete_dates,
-        csv_path=csv_path,
         db_path=db_path,
         state_path=state_path,
     )
