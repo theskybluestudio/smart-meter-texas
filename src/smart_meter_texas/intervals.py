@@ -25,6 +25,7 @@ from .daily import (
     coerce_date,
     default_project_root,
     load_dotenv_file,
+    read_secret_env,
     load_state,
     save_state,
     today_in_timezone,
@@ -739,9 +740,9 @@ def infer_last_complete_date(start: date, end: date, incomplete_dates: list[str]
 def sync_usage(args: argparse.Namespace) -> IntervalSyncResult:
     project_root = default_project_root()
     load_dotenv_file(project_root / ENV_FILENAME)
-    username = args.username or __import__("os").environ.get("SMT_USERNAME")
-    password = args.password or __import__("os").environ.get("SMT_PASSWORD")
-    requested_esiid = args.esiid or __import__("os").environ.get("SMT_ESIID")
+    username = args.username or read_secret_env("SMT_USERNAME")
+    password = args.password or read_secret_env("SMT_PASSWORD")
+    requested_esiid = args.esiid or read_secret_env("SMT_ESIID")
     if not username or not password:
         raise SmartMeterTexasError("Set SMT_USERNAME and SMT_PASSWORD or pass --username/--password.")
 

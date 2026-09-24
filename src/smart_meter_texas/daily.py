@@ -106,6 +106,20 @@ class SmartMeterTexasClient:
         return self._post(DAILY_USAGE_ENDPOINT, payload)
 
 
+
+
+def read_secret_env(name: str) -> str | None:
+    value = os.getenv(name)
+    if value:
+        return value
+    file_path = os.getenv(f"{name}_FILE")
+    if not file_path:
+        return None
+    path = Path(file_path)
+    if not path.exists():
+        raise SmartMeterTexasError(f"Secret file for {name} does not exist: {path}")
+    return path.read_text(encoding="utf-8").strip()
+
 def load_dotenv_file(path: Path) -> None:
     if not path.exists():
         return
@@ -124,9 +138,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Sync Smart Meter Texas historical usage into local CSV and SQLite files."
     )
-    parser.add_argument("--username", default=os.getenv("SMT_USERNAME"))
-    parser.add_argument("--password", default=os.getenv("SMT_PASSWORD"))
-    parser.add_argument("--esiid", default=os.getenv("SMT_ESIID"))
+    parser.add_argument("--username", default=read_secret_env("SMT_USERNAME"))
+    parser.add_argument("--password", default=read_secret_env("SMT_PASSWORD"))
+    parser.add_argument("--esiid", default=read_secret_env("SMT_ESIID"))
     parser.add_argument("--start-date", help="Start date in YYYY-MM-DD. Defaults from state/history.")
     parser.add_argument("--end-date", help="End date in YYYY-MM-DD. Defaults to today.")
     parser.add_argument("--bootstrap-days", type=int, default=30)
