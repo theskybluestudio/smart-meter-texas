@@ -1,0 +1,10 @@
+[data]
+source = "sqlite"
+fallback_sources = ["csv"]
+
+[csv]
+path = "data/smt_interval_usage_history.csv"
+
+[sqlite]
+path = "data/smt_interval_usage_history.sqlite"
+table = "interval_usage"

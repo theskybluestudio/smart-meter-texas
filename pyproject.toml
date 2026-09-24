@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smart-meter-texas-docker"
+version = "0.1.0"
+description = "SQLite-only Smart Meter Texas retriever and Streamlit dashboard"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "pandas>=2.2",
+  "plotly>=5.24",
+  "requests>=2.32",
+  "streamlit>=1.37",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+
+[project.scripts]
+smt-daily = "smart_meter_texas.daily:main"
+smt-interval = "smart_meter_texas.intervals:main"
+smt-scheduler = "smart_meter_texas.scheduler:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
