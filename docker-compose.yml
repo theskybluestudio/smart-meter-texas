@@ -10,8 +10,8 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - smt_data:/app/data
-      - smt_logs:/app/logs
+      - ./data:/app/data
+      - ./logs:/app/logs
     restart: unless-stopped
 
   scheduler:
@@ -23,10 +23,6 @@ services:
       SMT_PROJECT_ROOT: /app
     command: ["smt-scheduler"]
     volumes:
-      - smt_data:/app/data
-      - smt_logs:/app/logs
+      - ./data:/app/data
+      - ./logs:/app/logs
     restart: unless-stopped
-
-volumes:
-  smt_data:
-  smt_logs:

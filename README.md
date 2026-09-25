@@ -5,12 +5,12 @@ SQLite-only Smart Meter Texas interval retriever plus Streamlit dashboard.
 ## Services
 
 - `web`: Streamlit dashboard, reading from local SQLite.
-- `scheduler`: daily Smart Meter Texas interval refresh into the shared SQLite volume.
+- `scheduler`: daily Smart Meter Texas interval refresh into the shared SQLite database.
 
-Both services share Docker volumes mounted at:
+Both services bind-mount local folders into the containers:
 
-- `/app/data`
-- `/app/logs`
+- `./data` → `/app/data`
+- `./logs` → `/app/logs`
 
 ## Quick start
 
@@ -66,11 +66,11 @@ table = "interval_usage"
 
 ## Data outputs
 
-The interval retriever writes:
+The interval retriever writes these files on the host:
 
-- `data/smt_interval_usage_history.sqlite`
-- `data/smt_interval_sync_state.json`
-- `logs/raw-payloads/*.json`
+- `./data/smt_interval_usage_history.sqlite`
+- `./data/smt_interval_sync_state.json`
+- `./logs/raw-payloads/*.json`
 
 The SQLite table is `interval_usage`.
 
